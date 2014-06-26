@@ -41,6 +41,10 @@ install_resource()
       ;;
   esac
 }
+install_resource "../../Assets/icon-menu-settings-active.png"
+install_resource "../../Assets/icon-menu-settings-active@2x.png"
+install_resource "../../Assets/icon-menu-settings.png"
+install_resource "../../Assets/icon-menu-settings@2x.png"
 install_resource "../../Assets/icon-posts-editor-inspector-active.png"
 install_resource "../../Assets/icon-posts-editor-inspector-active@2x.png"
 install_resource "../../Assets/icon-posts-editor-inspector.png"
@@ -89,6 +93,9 @@ install_resource "../../Assets/icon_format_underline.png"
 install_resource "../../Assets/icon_format_underline@2x.png"
 install_resource "../../Assets/icon_format_underline_highlighted.png"
 install_resource "../../Assets/icon_format_underline_highlighted@2x.png"
+install_resource "../../Assets/quill_native_index.html"
+install_resource "../../Assets/quill.js"
+install_resource "../../Assets/quill.min.js"
 
 rsync -avr --copy-links --no-relative --exclude '*/.svn/*' --files-from="$RESOURCES_TO_COPY" / "${CONFIGURATION_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}"
 if [[ "${ACTION}" == "install" ]]; then

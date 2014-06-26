@@ -5,29 +5,27 @@
 #import <WordPress-iOS-Shared/WPTableViewCell.h>
 #import <WordPress-iOS-Shared/UIImage+Util.h>
 #import <UIAlertView+Blocks/UIAlertView+Blocks.h>
+#import "UIWebView+AccessoryHiding.h"
+#import "WPInsetTextField.h"
 
 CGFloat const EPVCTextfieldHeight = 44.0f;
-CGFloat const EPVCOptionsHeight = 44.0f;
 CGFloat const EPVCStandardOffset = 15.0;
-CGFloat const EPVCTextViewOffset = 10.0;
-CGFloat const EPVCTextViewBottomPadding = 50.0f;
-CGFloat const EPVCTextViewTopPadding = 7.0f;
 
 @interface WPEditorViewController ()<UITextFieldDelegate, UITextViewDelegate, WPKeyboardToolbarDelegate>
 @property (nonatomic) CGPoint scrollOffsetRestorePoint;
 @property (nonatomic, strong) UIAlertView *alertView;
-@property (nonatomic, strong) UIButton *optionsButton;
-@property (nonatomic, strong) UILabel *tapToStartWritingLabel;
+@property (nonatomic, strong) UIWebView *editorView;
 @property (nonatomic, strong) UITextField *titleTextField;
-@property (nonatomic, strong) UITextView *textView;
-@property (nonatomic, strong) UIView *optionsSeparatorView;
-@property (nonatomic, strong) UIView *optionsView;
-@property (nonatomic, strong) UIView *separatorView;
 @property (nonatomic, strong) WPKeyboardToolbarBase *editorToolbar;
 @property (nonatomic, strong) WPKeyboardToolbarDone *titleToolbar;
+@property (nonatomic) BOOL didFinishLoadingEditor;
+@property (nonatomic, strong) UIWindow *keyboardWindow;
 @end
 
 @implementation WPEditorViewController
+
+@synthesize titleText = _titleText;
+@synthesize bodyText = _bodyText;
 
 - (void)viewDidLoad
 {
@@ -39,8 +37,7 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
     }
     self.navigationController.navigationBar.translucent = NO;
     [self setupToolbar];
-    [self setupTextView];
-    [self setupOptionsView];
+    [self setupTextViews];
 }
 
 - (void)viewWillAppear:(BOOL)animated
@@ -52,7 +49,7 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
     self.navigationController.navigationBar.translucent = NO;
     self.navigationController.toolbarHidden = NO;
     UIToolbar *toolbar = self.navigationController.toolbar;
-    toolbar.barTintColor = [WPStyleGuide littleEddieGrey];
+    toolbar.barTintColor = [WPStyleGuide itsEverywhereGrey];
     toolbar.translucent = NO;
     toolbar.barStyle = UIBarStyleDefault;
     
@@ -81,14 +78,12 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
         [view setExclusiveTouch:YES];
     }
     
-    [self.textView setContentOffset:CGPointMake(0, 0)];
+//TODO:    [self.textView setContentOffset:CGPointMake(0, 0)];
 }
 
 - (void)viewDidAppear:(BOOL)animated
 {
     [super viewDidAppear:animated];
-    // Refresh the UI when the view appears or the options
-    // button won't be visible when restoring state.
     [self refreshUI];
 }
 
@@ -110,23 +105,23 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
 
 - (NSString*)titleText
 {
-    return self.titleTextField.text;
+    return _titleText;
 }
 
 - (void) setTitleText:(NSString*)titleText
 {
-    [self.titleTextField setText:titleText];
+    _titleText = titleText;
     [self refreshUI];
 }
 
 - (NSString*)bodyText
 {
-    return self.textView.text;
+    return _bodyText;
 }
 
 - (void) setBodyText:(NSString*)bodyText
 {
-    [self.textView setText:bodyText];
+    _bodyText = bodyText;
     [self refreshUI];
 }
 
@@ -146,12 +141,18 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
                                                                     style:UIBarButtonItemStylePlain
                                                                    target:self
                                                                    action:@selector(didTouchMediaOptions)];
+    UIBarButtonItem *optionsButton = [[UIBarButtonItem alloc] initWithImage:[UIImage imageNamed:@"icon-menu-settings"]
+                                                                      style:UIBarButtonItemStylePlain
+                                                                     target:self
+                                                                     action:@selector(didTouchSettings)];
     
-    previewButton.tintColor = [WPStyleGuide readGrey];
-    photoButton.tintColor = [WPStyleGuide readGrey];
+    previewButton.tintColor = [WPStyleGuide textFieldPlaceholderGrey];
+    photoButton.tintColor = [WPStyleGuide textFieldPlaceholderGrey];
+    optionsButton.tintColor = [WPStyleGuide textFieldPlaceholderGrey];
 
     previewButton.accessibilityLabel = NSLocalizedString(@"Preview post", nil);
     photoButton.accessibilityLabel = NSLocalizedString(@"Add media", nil);
+    optionsButton.accessibilityLabel = NSLocalizedString(@"Options", @"Title of the Post Settings tableview cell in the Post Editor. Tapping shows settings and options related to the post being edited.");
     
     UIBarButtonItem *leftFixedSpacer = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemFixedSpace
                                                                                      target:nil
@@ -166,154 +167,45 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
     leftFixedSpacer.width = -2.0f;
     rightFixedSpacer.width = -5.0f;
     
-    self.toolbarItems = @[leftFixedSpacer, previewButton, centerFlexSpacer, photoButton, rightFixedSpacer];
+    self.toolbarItems = @[leftFixedSpacer, photoButton, centerFlexSpacer, optionsButton, centerFlexSpacer, previewButton, rightFixedSpacer];
 }
 
-- (void)setupTextView
+- (void)setupTextViews
 {
-    CGFloat x = 0.0f;
     CGFloat viewWidth = CGRectGetWidth(self.view.frame);
-    CGFloat width = viewWidth;
     UIViewAutoresizing mask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
-    if (IS_IPAD) {
-        width = WPTableViewFixedWidth;
-        x = ceilf((viewWidth - width) / 2.0f);
-        mask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleHeight;
-    }
-    CGRect frame = CGRectMake(x, 0.0f, width, CGRectGetHeight(self.view.frame) - EPVCOptionsHeight);
-
-    // Height should never be smaller than what is required to display its text.
-    if (!self.textView) {
-        self.textView = [[UITextView alloc] initWithFrame:frame];
-        self.textView.autoresizingMask = mask;
-        self.textView.delegate = self;
-        self.textView.typingAttributes = [WPStyleGuide regularTextAttributes];
-        self.textView.font = [WPStyleGuide regularTextFont];
-        self.textView.textColor = [WPStyleGuide darkAsNightGrey];
-        self.textView.accessibilityLabel = NSLocalizedString(@"Content", @"Post content");
-    }
-    [self.view addSubview:self.textView];
-    
-    // Formatting bar for the textView's inputAccessoryView.
-    if (self.editorToolbar == nil) {
-        frame = CGRectMake(0.0f, 0.0f, viewWidth, WPKT_HEIGHT_PORTRAIT);
-        self.editorToolbar = [[WPKeyboardToolbarBase alloc] initWithFrame:frame];
-        self.editorToolbar.backgroundColor = [WPStyleGuide keyboardColor];
-        self.editorToolbar.delegate = self;
-        self.textView.inputAccessoryView = self.editorToolbar;
-    }
+    CGRect frame = CGRectMake(0.0f, 0.0f, viewWidth, EPVCTextfieldHeight);
     
     // Title TextField.
     if (!self.titleTextField) {
-        CGFloat textWidth = CGRectGetWidth(self.textView.frame) - (2 * EPVCStandardOffset);
-        frame = CGRectMake(EPVCStandardOffset, 0.0, textWidth, EPVCTextfieldHeight);
-        self.titleTextField = [[UITextField alloc] initWithFrame:frame];
+        self.titleTextField = [[WPInsetTextField alloc] initWithFrame:frame];
+        self.titleTextField.returnKeyType = UIReturnKeyDone;
         self.titleTextField.delegate = self;
         self.titleTextField.font = [WPStyleGuide postTitleFont];
+        self.titleTextField.backgroundColor = [UIColor whiteColor];
         self.titleTextField.textColor = [WPStyleGuide darkAsNightGrey];
         self.titleTextField.autoresizingMask = UIViewAutoresizingFlexibleWidth;
         self.titleTextField.attributedPlaceholder = [[NSAttributedString alloc] initWithString:(NSLocalizedString(@"Enter title here", @"Label for the title of the post field. Should be the same as WP core.")) attributes:(@{NSForegroundColorAttributeName: [WPStyleGuide textFieldPlaceholderGrey]})];
         self.titleTextField.accessibilityLabel = NSLocalizedString(@"Title", @"Post title");
+        self.titleTextField.keyboardType = UIKeyboardTypeAlphabet;
         self.titleTextField.returnKeyType = UIReturnKeyNext;
     }
-    [self.textView addSubview:self.titleTextField];
+    [self.view addSubview:self.titleTextField];
     
-    // InputAccessoryView for title textField.
-    if (!self.titleToolbar) {
-        frame = CGRectMake(0.0f, 0.0f, viewWidth, WPKT_HEIGHT_PORTRAIT);
-        self.titleToolbar = [[WPKeyboardToolbarDone alloc] initWithFrame:frame];
-        self.titleToolbar.backgroundColor = [WPStyleGuide keyboardColor];
-        self.titleToolbar.delegate = self;
-        self.titleTextField.inputAccessoryView = self.titleToolbar;
+    // Editor View
+    frame = CGRectMake(0.0f, frame.size.height, viewWidth, CGRectGetHeight(self.view.frame) - EPVCTextfieldHeight);
+    if (!self.editorView) {
+        self.editorView = [[UIWebView alloc] initWithFrame:frame];
+        self.editorView.delegate = self;
+        self.editorView.hidesInputAccessoryView = YES;
+        self.editorView.autoresizingMask = mask;
+        self.editorView.scalesPageToFit = YES;
+        self.editorView.dataDetectorTypes = UIDataDetectorTypeNone;
+        self.editorView.scrollView.bounces = NO;
+        self.editorView.backgroundColor = [UIColor whiteColor];
+        [self.editorView loadRequest:[NSURLRequest requestWithURL:[NSURL fileURLWithPath:[[NSBundle mainBundle] pathForResource:@"quill_native_index" ofType:@"html"]isDirectory:NO]]];
     }
-    
-    // One pixel separator bewteen title and content text fields.
-    if (!self.separatorView) {
-        CGFloat y = CGRectGetMaxY(self.titleTextField.frame);
-        CGFloat separatorWidth = width - EPVCStandardOffset;
-        frame = CGRectMake(EPVCStandardOffset, y, separatorWidth, 1.0);
-        self.separatorView = [[UIView alloc] initWithFrame:frame];
-        self.separatorView.backgroundColor = [WPStyleGuide readGrey];
-        self.separatorView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    }
-    [self.textView addSubview:self.separatorView];
-    
-    // Update the textView's textContainerInsets so text does not overlap content.
-    CGFloat left = EPVCTextViewOffset;
-    CGFloat right = EPVCTextViewOffset;
-    CGFloat top = CGRectGetMaxY(self.separatorView.frame) + EPVCTextViewTopPadding;
-    CGFloat bottom = EPVCTextViewBottomPadding;
-    self.textView.textContainerInset = UIEdgeInsetsMake(top, left, bottom, right);
-
-    if (!self.tapToStartWritingLabel) {
-        frame = CGRectZero;
-        frame.origin.x = EPVCStandardOffset;
-        frame.origin.y = self.textView.textContainerInset.top;
-        frame.size.width = width - (EPVCStandardOffset * 2);
-        frame.size.height = 26.0f;
-        self.tapToStartWritingLabel = [[UILabel alloc] initWithFrame:frame];
-        self.tapToStartWritingLabel.text = NSLocalizedString(@"Tap here to begin writing", @"Placeholder for the main body text. Should hint at tapping to enter text (not specifying body text).");
-        self.tapToStartWritingLabel.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        self.tapToStartWritingLabel.font = [WPStyleGuide regularTextFont];
-        self.tapToStartWritingLabel.textColor = [WPStyleGuide textFieldPlaceholderGrey];
-        self.tapToStartWritingLabel.isAccessibilityElement = NO;
-    }
-    [self.textView addSubview:self.tapToStartWritingLabel];
-}
-
-- (void)setupOptionsView
-{
-    CGFloat width = CGRectGetWidth(self.textView.frame);
-    CGFloat x = CGRectGetMinX(self.textView.frame);
-    CGFloat y = CGRectGetMaxY(self.textView.frame);
-    
-    CGRect frame;
-    if (!self.optionsView) {
-        frame = CGRectMake(x, y, width, EPVCOptionsHeight);
-        self.optionsView = [[UIView alloc] initWithFrame:frame];
-        self.optionsView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleTopMargin;
-        if (IS_IPAD) {
-            self.optionsView.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin | UIViewAutoresizingFlexibleRightMargin | UIViewAutoresizingFlexibleTopMargin;
-        }
-        self.optionsView.backgroundColor = [UIColor whiteColor];
-    }
-    [self.view addSubview:self.optionsView];
-    
-    // One pixel separator bewteen content and table view cells.
-    if (!self.optionsSeparatorView) {
-        CGFloat separatorWidth = width - EPVCStandardOffset;
-        frame = CGRectMake(EPVCStandardOffset, 0.0f, separatorWidth, 1.0f);
-        self.optionsSeparatorView = [[UIView alloc] initWithFrame:frame];
-        self.optionsSeparatorView.backgroundColor = [WPStyleGuide readGrey];
-        self.optionsSeparatorView.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-    }
-    [self.optionsView addSubview:self.optionsSeparatorView];
-    
-    if (!self.optionsButton) {
-        NSString *optionsTitle = NSLocalizedString(@"Options", @"Title of the Post Settings tableview cell in the Post Editor. Tapping shows settings and options related to the post being edited.");
-        frame = CGRectMake(0.0f, 1.0f, width, EPVCOptionsHeight - 1.0f);
-        self.optionsButton = [UIButton buttonWithType:UIButtonTypeCustom];
-        self.optionsButton.frame = frame;
-        self.optionsButton.autoresizingMask = UIViewAutoresizingFlexibleWidth;
-        [self.optionsButton addTarget:self action:@selector(didTouchSettings)
-                     forControlEvents:UIControlEventTouchUpInside];
-        [self.optionsButton setBackgroundImage:[UIImage imageWithColor:[WPStyleGuide readGrey]]
-                                      forState:UIControlStateHighlighted];
-
-        // Rather than using a UIImageView to fake a disclosure icon, just use a cell and future proof the UI.
-        WPTableViewCell *cell = [[WPTableViewCell alloc] initWithFrame:self.optionsButton.bounds];
-        // The cell uses its default frame and ignores what was passed during init, so set it again.
-        cell.frame = self.optionsButton.bounds;
-        cell.backgroundColor = [UIColor clearColor];
-        cell.autoresizingMask = UIViewAutoresizingFlexibleHeight | UIViewAutoresizingFlexibleWidth;
-        cell.textLabel.text = optionsTitle;
-        cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
-        cell.userInteractionEnabled = NO;
-        [WPStyleGuide configureTableViewCell:cell];
-        
-        [self.optionsButton addSubview:cell];
-    }
-    [self.optionsView addSubview:self.optionsButton];
+    [self.view addSubview:self.editorView];
 }
 
 - (void)positionTextView:(NSNotification *)notification
@@ -322,14 +214,14 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
     CGRect originalKeyboardFrame = [[keyboardInfo objectForKey:UIKeyboardFrameEndUserInfoKey] CGRectValue];
     CGRect keyboardFrame = [self.view convertRect:[self.view.window convertRect:originalKeyboardFrame fromWindow:nil]
                                          fromView:nil];
-    CGRect frame = self.textView.frame;
+    CGRect frame = self.editorView.frame;
     
     if (self.isShowingKeyboard) {
         frame.size.height = CGRectGetMinY(keyboardFrame) - CGRectGetMinY(frame);
     } else {
-        frame.size.height = CGRectGetHeight(self.view.frame) - EPVCOptionsHeight;
+        frame.size.height = CGRectGetHeight(self.view.frame) - EPVCTextfieldHeight;
     }
-    self.textView.frame = frame;
+    self.editorView.frame = frame;
 }
 
 #pragma mark - Actions
@@ -355,12 +247,10 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
     }
 }
 
-#pragma mark - Editor and Misc Methods
+#pragma mark - Editor Commands
 
 - (void)stopEditing
 {
-    // With the titleTextField as a subview of textField, we need to resign and
-    // end editing to prevent the textField from becomeing first responder.
     if ([self.titleTextField isFirstResponder]) {
         [self.titleTextField resignFirstResponder];
     }
@@ -369,26 +259,26 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
 
 - (void)refreshUI
 {
-    if(self.titleText != nil || self.titleText != 0) {
+    if(self.titleText != nil || self.titleText.length != 0) {
         self.title = self.titleText;
+        [self.titleTextField setText:_titleText];
     }
-    if(self.bodyText == nil || self.bodyText == 0) {
-        self.tapToStartWritingLabel.hidden = NO;
-        self.textView.text = @"";
-    } else {
-        self.tapToStartWritingLabel.hidden = YES;
+    if(self.bodyText != nil || self.bodyText.length != 0) {
+        [self loadEditor:self.bodyText];
     }
 }
 
-- (void)showLinkView
+- (void)loadEditor:(NSString*)html
 {
-    NSRange range = self.textView.selectedRange;
-    NSString *infoText = nil;
-    if (range.length > 0) {
-        infoText = [self.textView.text substringWithRange:range];
+    if (_didFinishLoadingEditor) {
+        [self clenseHTML:&html];
+        NSString *setEditorContentCommand = [NSString stringWithFormat:@"setEditorHTML(\"%@\")", html];
+        [self.editorView stringByEvaluatingJavaScriptFromString:setEditorContentCommand];
     }
-    self.scrollOffsetRestorePoint = self.textView.contentOffset;
-    
+}
+
+- (void)showLinkAlert
+{
     NSString *alertViewTitle = NSLocalizedString(@"Make a Link", @"Title of the Link Helper popup to aid in creating a Link in the Post Editor.");
     NSCharacterSet *charSet = [NSCharacterSet whitespaceAndNewlineCharacterSet];
     alertViewTitle = [alertViewTitle stringByTrimmingCharactersInSet:charSet];
@@ -401,18 +291,8 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
                                            delegate:nil
                                   cancelButtonTitle:cancelButtonTitle
                                   otherButtonTitles:insertButtonTitle, nil];
-    self.alertView.alertViewStyle = UIAlertViewStyleLoginAndPasswordInput;
+    self.alertView.alertViewStyle = UIAlertViewStylePlainTextInput;
     self.alertView.tag = 99;
-    
-    UITextField *alt = [self.alertView textFieldAtIndex:1];
-    alt.secureTextEntry = NO;
-    alt.placeholder = NSLocalizedString(@"Text to be linked", @"Popup to aid in creating a Link in the Post Editor.");
-    alt.autocapitalizationType = UITextAutocapitalizationTypeNone;
-    alt.keyboardAppearance = UIKeyboardAppearanceAlert;
-    alt.keyboardType = UIKeyboardTypeDefault;
-    if (infoText) {
-        alt.text = infoText;
-    }
     
     UITextField *linkURL = [self.alertView textFieldAtIndex:0];
     linkURL.placeholder = NSLocalizedString(@"Link URL", @"Popup to aid in creating a Link in the Post Editor, URL field (where you can type or paste a URL that the text should link.");
@@ -426,42 +306,23 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
             if (buttonIndex == 1) {
                 // Insert link
                 UITextField *urlField = [alertView textFieldAtIndex:0];
-                UITextField *infoText = [alertView textFieldAtIndex:1];
                 
                 if ((urlField.text == nil) || ([urlField.text isEqualToString:@""])) {
                     return;
                 }
                 
-                if ((infoText.text == nil) || ([infoText.text isEqualToString:@""])) {
-                    infoText.text = urlField.text;
-                }
-                
                 NSString *urlString = [weakSelf validateNewLinkInfo:[urlField.text stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceCharacterSet]]];
-                NSString *aTagText = [NSString stringWithFormat:@"<a href=\"%@\">%@</a>", urlString, infoText.text];
-                NSRange range = weakSelf.textView.selectedRange;
-                NSString *oldText = weakSelf.textView.text;
-                NSRange oldRange = weakSelf.textView.selectedRange;
-                weakSelf.textView.scrollEnabled = NO;
-                weakSelf.textView.text = [weakSelf.textView.text stringByReplacingCharactersInRange:range withString:aTagText];
-                weakSelf.textView.scrollEnabled = YES;
-                
-                //reset selection back to nothing
-                range.length = 0;
-                range.location += [aTagText length]; // Place selection after the tag
-                weakSelf.textView.selectedRange = range;
-                
-                [[weakSelf.textView.undoManager prepareWithInvocationTarget:weakSelf] restoreText:oldText withRange:oldRange];
-                [weakSelf.textView.undoManager setActionName:@"link"];
-                [weakSelf textViewDidChange:self.textView];
-                [weakSelf refreshTextView];
-                
+                NSLog(@"Entered: %@",urlString);
+                [self clenseHTML:&urlString];
+                NSString *jsCommand = [NSString stringWithFormat:@"linkSelection(\"%@\")", urlString];
+                [weakSelf.editorView stringByEvaluatingJavaScriptFromString:jsCommand];
             }
             
             // Don't dismiss the keyboard
             // Hack from http://stackoverflow.com/a/7601631
             dispatch_async(dispatch_get_main_queue(), ^{
-                if([weakSelf.textView resignFirstResponder] || [weakSelf.titleTextField resignFirstResponder]){
-                    [weakSelf.textView becomeFirstResponder];
+                if([weakSelf.editorView resignFirstResponder] || [weakSelf.titleTextField resignFirstResponder]){
+                    [weakSelf.editorView becomeFirstResponder];
                 }
             });
         }
@@ -496,113 +357,60 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
     }
 }
 
-#pragma mark - Formatting
-
-- (void)restoreText:(NSString *)text withRange:(NSRange)range
-{
-    NSString *oldText = self.textView.text;
-    NSRange oldRange = self.textView.selectedRange;
-    self.textView.scrollEnabled = NO;
-    // iOS6 seems to have a bug where setting the text like so : textView.text = text;
-    // will cause an infinate loop of undos.  A work around is to perform the selector
-    // on the main thread.
-    // textView.text = text;
-    [self.textView performSelectorOnMainThread:@selector(setText:) withObject:text waitUntilDone:NO];
-    self.textView.scrollEnabled = YES;
-    self.textView.selectedRange = range;
-    [[self.textView.undoManager prepareWithInvocationTarget:self] restoreText:oldText withRange:oldRange];
-    [self textViewDidChange:self.textView];
-}
-
-- (void)wrapSelectionWithTag:(NSString *)tag
-{
-    NSRange range = self.textView.selectedRange;
-    NSString *selection = [self.textView.text substringWithRange:range];
-    NSString *prefix, *suffix;
-    if ([tag isEqualToString:@"more"]) {
-        prefix = @"<!--more-->";
-        suffix = @"\n";
-    } else if ([tag isEqualToString:@"blockquote"]) {
-        prefix = [NSString stringWithFormat:@"\n<%@>", tag];
-        suffix = [NSString stringWithFormat:@"</%@>\n", tag];
-    } else {
-        prefix = [NSString stringWithFormat:@"<%@>", tag];
-        suffix = [NSString stringWithFormat:@"</%@>", tag];
-    }
-    self.textView.scrollEnabled = NO;
-    NSString *replacement = [NSString stringWithFormat:@"%@%@%@",prefix,selection,suffix];
-    self.textView.text = [self.textView.text stringByReplacingCharactersInRange:range
-                                                             withString:replacement];
-    [self textViewDidChange:self.textView];
-    self.textView.scrollEnabled = YES;
-    if (range.length == 0) {                // If nothing was selected
-        range.location += [prefix length]; // Place selection between tags
-    } else {
-        range.location += range.length + [prefix length] + [suffix length]; // Place selection after tag
-        range.length = 0;
-    }
-    self.textView.selectedRange = range;
-    
-    [self refreshTextView];
-}
-
-// In some situations on iOS7, inserting text while `scrollEnabled = NO` results in
-// the last line(s) of text on the text view not appearing. This is a workaround
-// to get the UITextView to redraw after inserting text but without affecting the
-// scrollOffset.
-- (void)refreshTextView
-{
-    dispatch_async(dispatch_get_main_queue(), ^{
-        self.textView.scrollEnabled = NO;
-        [self.textView setNeedsDisplay];
-        self.textView.scrollEnabled = YES;
-    });
-}
-
 #pragma mark - WPKeyboardToolbar Delegate
 
 - (void)keyboardToolbarButtonItemPressed:(WPKeyboardToolbarButtonItem *)buttonItem
 {
-    if ([buttonItem.actionTag isEqualToString:@"link"]) {
-        [self showLinkView];
+    NSString *jsCommand;
+    if ([buttonItem.actionTag isEqualToString:@"strong"]) {
+        jsCommand = @"boldSelection();";
+        [self.editorView stringByEvaluatingJavaScriptFromString:jsCommand];
+    } else if ([buttonItem.actionTag isEqualToString:@"em"]) {
+        jsCommand= @"italicizeSelection();";
+        [self.editorView stringByEvaluatingJavaScriptFromString:jsCommand];
+    } else if ([buttonItem.actionTag isEqualToString:@"u"]) {
+        jsCommand = @"underlineSelection();";
+        [self.editorView stringByEvaluatingJavaScriptFromString:jsCommand];
+    } else if ([buttonItem.actionTag isEqualToString:@"del"]) {
+        jsCommand = @"deleteSelection();";
+        [self.editorView stringByEvaluatingJavaScriptFromString:jsCommand];
+    } else if ([buttonItem.actionTag isEqualToString:@"link"]) {
+        [self showLinkAlert];
+    } else if ([buttonItem.actionTag isEqualToString:@"image"]) {
+        NSString *urlString = @"http://freshtakeoncontent.com/wp-content/uploads/Wordpress_256.png";
+        [self clenseHTML:&urlString];
+        jsCommand = [NSString stringWithFormat:@"insertImage(\"%@\")", urlString];
+        [self.editorView stringByEvaluatingJavaScriptFromString:jsCommand];
+    } else if ([buttonItem.actionTag isEqualToString:@"more"]) {
+        jsCommand= @"insertMore();";
+        [self.editorView stringByEvaluatingJavaScriptFromString:jsCommand];
     } else if ([buttonItem.actionTag isEqualToString:@"done"]) {
-        [self stopEditing];
-    } else {
-        NSString *oldText = self.textView.text;
-        NSRange oldRange = self.textView.selectedRange;
-        [self wrapSelectionWithTag:buttonItem.actionTag];
-        [[self.textView.undoManager prepareWithInvocationTarget:self] restoreText:oldText withRange:oldRange];
-        [self.textView.undoManager setActionName:buttonItem.actionName];
+        if ([self.editorView isFirstResponder]) {
+            [self.editorView resignFirstResponder];
+        }
+        [self.view endEditing:YES];
     }
 }
 
-#pragma mark - TextView Delegate
+#pragma mark - UIWebViewDelegate Delegate Methods
 
-- (BOOL)textViewShouldBeginEditing:(UITextView *)textView
+- (void)webViewDidFinishLoad:(UIWebView *)webView
 {
-    if ([self.delegate respondsToSelector: @selector(editorShouldBeginEditing:)]) {
-        return [self.delegate editorShouldBeginEditing:self];
-    }
-    return YES;
+    self.didFinishLoadingEditor = YES;
+    [self refreshUI];
 }
 
-- (void)textViewDidBeginEditing:(UITextView *)textView
+- (BOOL)webView:(UIWebView *)webView shouldStartLoadWithRequest:(NSURLRequest *)request navigationType:(UIWebViewNavigationType)navigationType
 {
-    self.tapToStartWritingLabel.hidden = YES;
-}
-
-- (void)textViewDidChange:(UITextView *)aTextView
-{
-    if ([self.delegate respondsToSelector: @selector(editorTextDidChange:)]) {
-        [self.delegate editorTextDidChange:self];
+    if([[[request URL] absoluteString] isEqualToString:@"app://api-triggered-text-change"] || [[[request URL] absoluteString] isEqualToString:@"app://user-triggered-text-change"]) {
+        NSString *html = [self.editorView stringByEvaluatingJavaScriptFromString:@"getEditorHTML();"];
+        self.bodyText = html;
+        if ([self.delegate respondsToSelector: @selector(editorTextDidChange:)]) {
+            [self.delegate editorTextDidChange:self];
+        }
+        return false;
     }
-}
-
-- (void)textViewDidEndEditing:(UITextView *)aTextView
-{
-    if ([self.textView.text isEqualToString:@""]) {
-        self.tapToStartWritingLabel.hidden = NO;
-    }
+    return true;
 }
 
 #pragma mark - TextField delegate
@@ -618,7 +426,9 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
 - (BOOL)textField:(UITextField *)textField shouldChangeCharactersInRange:(NSRange)range replacementString:(NSString *)string
 {
     if (textField == self.titleTextField) {
-        [self setTitle:[textField.text stringByReplacingCharactersInRange:range withString:string]];
+        NSString *newTitle = [textField.text stringByReplacingCharactersInRange:range withString:string];
+        [self setTitle:newTitle];
+        self.titleText = newTitle;
         if ([self.delegate respondsToSelector: @selector(editorTitleDidChange:)]) {
             [self.delegate editorTitleDidChange:self];
         }
@@ -628,7 +438,7 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
 
 - (BOOL)textFieldShouldReturn:(UITextField *)textField
 {
-    [self.textView becomeFirstResponder];
+    [self.editorView becomeFirstResponder];
     return NO;
 }
 
@@ -684,16 +494,41 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
         [self.navigationController setNavigationBarHidden:YES animated:YES];
         [self.navigationController setToolbarHidden:YES animated:NO];
     }
+    
+    for (UIWindow *testWindow in [[UIApplication sharedApplication] windows]) {
+        if (![[testWindow class] isEqual:[UIWindow class]]) {
+            _keyboardWindow = testWindow;
+            break;
+        }
+    }
+    
+    CGRect frm = _keyboardWindow.frame;
+    CGRect toolbarFrame = CGRectMake(0.0f, frm.size.height, frm.size.width, 44.0f);
+    if (_editorToolbar == nil) {
+        _editorToolbar = [[WPKeyboardToolbarBase alloc] initWithFrame:toolbarFrame];
+        _editorToolbar.backgroundColor = [WPStyleGuide keyboardColor];
+        _editorToolbar.delegate = self;
+    }
+    
+    [_keyboardWindow addSubview:_editorToolbar];
+    
+    [UIView animateWithDuration:0.30 animations:^{
+        _editorToolbar.frame = CGRectMake(0.0f, 308.0f, toolbarFrame.size.width, toolbarFrame.size.height);
+    }];
+    
+    _editorToolbar.frame = CGRectMake(0.0f, 308.0f, toolbarFrame.size.width, toolbarFrame.size.height);
+    _isShowingKeyboard = YES;
 }
 
 - (void)keyboardDidShow:(NSNotification *)notification
 {
-    if ([self.textView isFirstResponder]) {
-        if (!CGPointEqualToPoint(CGPointZero, self.scrollOffsetRestorePoint)) {
-            self.textView.contentOffset = self.scrollOffsetRestorePoint;
-            self.scrollOffsetRestorePoint = CGPointZero;
-        }
-    }
+//TODO: Restore point
+//    if ([self.editorView isFirstResponder]) {
+//        if (!CGPointEqualToPoint(CGPointZero, self.scrollOffsetRestorePoint)) {
+//            self.textView.contentOffset = self.scrollOffsetRestorePoint;
+//            self.scrollOffsetRestorePoint = CGPointZero;
+//        }
+//    }
     [self positionTextView:notification];
 }
 
@@ -704,6 +539,16 @@ CGFloat const EPVCTextViewTopPadding = 7.0f;
     [self.navigationController setNavigationBarHidden:NO animated:YES];
     [self.navigationController setToolbarHidden:NO animated:NO];
     [self positionTextView:notification];
+}
+
+#pragma mark - Utility Methods
+
+- (void)clenseHTML:(NSString **)htmlParam_p
+{
+    *htmlParam_p = [*htmlParam_p stringByReplacingOccurrencesOfString:@"\"" withString:@"\\\""];
+    *htmlParam_p = [*htmlParam_p stringByReplacingOccurrencesOfString:@"\n" withString:@"\\n"];
+    *htmlParam_p = [*htmlParam_p stringByReplacingOccurrencesOfString:@"\r" withString:@""];
+    *htmlParam_p = [*htmlParam_p stringByReplacingOccurrencesOfString:@"\'" withString:@"\\\'"];
 }
 
 @end
