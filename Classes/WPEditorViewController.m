@@ -58,10 +58,6 @@ CGFloat const EPVCStandardOffset = 15.0;
                                                  name:UIKeyboardWillShowNotification
                                                object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self
-                                             selector:@selector(keyboardDidShow:)
-                                                 name:UIKeyboardDidShowNotification
-                                               object:nil];
-    [[NSNotificationCenter defaultCenter] addObserver:self
                                              selector:@selector(keyboardWillHide:)
                                                  name:UIKeyboardWillHideNotification
                                                object:nil];
@@ -91,7 +87,6 @@ CGFloat const EPVCStandardOffset = 15.0;
 {
     [super viewWillDisappear:animated];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillShowNotification object:nil];
-    [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardDidShowNotification object:nil];
     [[NSNotificationCenter defaultCenter] removeObserver:self name:UIKeyboardWillHideNotification object:nil];
     [self.navigationController setToolbarHidden:YES animated:animated];
 	[self stopEditing];
@@ -520,26 +515,30 @@ CGFloat const EPVCStandardOffset = 15.0;
     _isShowingKeyboard = YES;
 }
 
-- (void)keyboardDidShow:(NSNotification *)notification
-{
-//TODO: Restore point
-//    if ([self.editorView isFirstResponder]) {
-//        if (!CGPointEqualToPoint(CGPointZero, self.scrollOffsetRestorePoint)) {
-//            self.textView.contentOffset = self.scrollOffsetRestorePoint;
-//            self.scrollOffsetRestorePoint = CGPointZero;
-//        }
-//    }
-    [self positionTextView:notification];
-}
+//- (void)keyboardWillHide:(NSNotification *)notification
+//{
+//	self.isShowingKeyboard = NO;
+//    [[UIApplication sharedApplication] setStatusBarHidden:NO withAnimation:UIStatusBarAnimationFade];
+//    [self.navigationController setNavigationBarHidden:NO animated:YES];
+//    [self.navigationController setToolbarHidden:NO animated:NO];
+//    [self positionTextView:notification];
+//}
 
 - (void)keyboardWillHide:(NSNotification *)notification
 {
-	self.isShowingKeyboard = NO;
+    CGRect frm = _keyboardWindow.frame;
+    CGRect toolbarFrame = CGRectMake(0.0f, frm.size.height, frm.size.width, 44.0f);
+    [UIView animateWithDuration:0.33 animations:^{
+        _editorToolbar.frame = CGRectMake(0.0f, 800.0f, toolbarFrame.size.width, toolbarFrame.size.height);
+    }];
+    self.keyboardWindow = nil;
     [[UIApplication sharedApplication] setStatusBarHidden:NO withAnimation:UIStatusBarAnimationFade];
     [self.navigationController setNavigationBarHidden:NO animated:YES];
     [self.navigationController setToolbarHidden:NO animated:NO];
     [self positionTextView:notification];
+    self.isShowingKeyboard = NO;
 }
+
 
 #pragma mark - Utility Methods
 
